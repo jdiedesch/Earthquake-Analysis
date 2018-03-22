@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+
+<head>
+
+<meta charset="utf-8" />
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="pandoc" />
+
+
+
+
+<title>Earthquake Total</title>
+
+<script src="site_libs/jquery-1.11.3/jquery.min.js"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link href="site_libs/bootstrap-3.3.5/css/cosmo.min.css" rel="stylesheet" />
+<script src="site_libs/bootstrap-3.3.5/js/bootstrap.min.js"></script>
+<script src="site_libs/bootstrap-3.3.5/shim/html5shiv.min.js"></script>
+<script src="site_libs/bootstrap-3.3.5/shim/respond.min.js"></script>
+<script src="site_libs/navigation-1.1/tabsets.js"></script>
+<link href="site_libs/highlightjs-1.1/default.css" rel="stylesheet" />
+<script src="site_libs/highlightjs-1.1/highlight.js"></script>
+
+<style type="text/css">code{white-space: pre;}</style>
+<style type="text/css">
+  pre:not([class]) {
+    background-color: white;
+  }
+</style>
+<script type="text/javascript">
+if (window.hljs && document.readyState && document.readyState === "complete") {
+   window.setTimeout(function() {
+      hljs.initHighlighting();
+   }, 0);
+}
+</script>
+
+
+
+<style type="text/css">
+h1 {
+  font-size: 34px;
+}
+h1.title {
+  font-size: 38px;
+}
+h2 {
+  font-size: 30px;
+}
+h3 {
+  font-size: 24px;
+}
+h4 {
+  font-size: 18px;
+}
+h5 {
+  font-size: 16px;
+}
+h6 {
+  font-size: 12px;
+}
+.table th:not([align]) {
+  text-align: left;
+}
+</style>
+
+
+</head>
+
+<body>
+
+<style type = "text/css">
+.main-container {
+  max-width: 940px;
+  margin-left: auto;
+  margin-right: auto;
+}
+code {
+  color: inherit;
+  background-color: rgba(0, 0, 0, 0.04);
+}
+img {
+  max-width:100%;
+  height: auto;
+}
+.tabbed-pane {
+  padding-top: 12px;
+}
+button.code-folding-btn:focus {
+  outline: none;
+}
+</style>
+
+
+
+<div class="container-fluid main-container">
+
+<!-- tabsets -->
+<script>
+$(document).ready(function () {
+  window.buildTabsets("TOC");
+});
+</script>
+
+<!-- code folding -->
+
+
+
+
+
+
+<div class="fluid-row" id="header">
+
+
+
+<h1 class="title toc-ignore">Earthquake Total</h1>
+
+</div>
+
+<div id="TOC">
+<ul>
+<li><a href="#libraries-and-useful-functions">Libraries and useful functions</a></li>
+<li><a href="#daily-density">Daily density</a></li>
+<li><a href="#plot-number-of-historical-quakes">Plot number of historical quakes</a></li>
+<li><a href="#autocorrelation-in-number-of-quakes">Autocorrelation in number of quakes:</a></li>
+<li><a href="#comparison-of-time-series-model-with-bootstrapped-sample">Comparison of time series model with bootstrapped sample:</a></li>
+<li><a href="#compare-modeled-future-path-to-historical-range">Compare modeled future path to historical range</a></li>
+</ul>
+</div>
+
+<div id="libraries-and-useful-functions" class="section level2">
+<h2>Libraries and useful functions</h2>
+<pre class="r"><code>library(jsonlite)
+library(geojsonio)
+library(RCurl)
+library(stringr)
+library(dplyr)
+library(tidyr)
+library(tscount)
+library(scales)
+library(ggplot2)
+library(lubridate)
+library(forecast)
+
+pSim &lt;- function(nPeriods, mdl){
+  modelSim &lt;- tsglm.sim(n = nPeriods, fit = mdl, n_start = 0)
+  sum(modelSim$ts)
+  
+}
+
+sampleTotal &lt;- function(endPoint, fullData, dayCount) {
+  s &lt;- sum(fullData[(endPoint - dayCount):endPoint])
+}</code></pre>
+<pre class="r"><code># DOWNLOAD DATA
+
+currDate &lt;- Sys.Date()
+
+pathBase &lt;- &quot;https://earthquake.usgs.gov/fdsnws/event/1/query?&quot;
+retFormat &lt;- paste0(&quot;format=geojson&quot;)
+startTime &lt;- &quot;starttime=1960-01-01&quot;
+endTime &lt;- paste0(&quot;endtime=&quot;, Sys.Date())
+minMag &lt;- &quot;minmagnitude=6&quot;
+
+eqPath &lt;- paste0(pathBase, retFormat, &quot;&amp;&quot;, startTime, &quot;&amp;&quot;, endTime, &quot;&amp;&quot;, minMag)
+
+largeQuakes &lt;- fromJSON(eqPath)
+quakeFrame &lt;- largeQuakes$features$properties
+
+# USGS limits downloads, so need to download in sequence to get mag 5 quakes
+magSeq &lt;- seq(from = 5.0, to = 6.0, by = 0.05)
+
+for (i in 1:(length(magSeq) - 1)){
+  
+  minMag &lt;- paste0(&quot;minmagnitude=&quot;, magSeq[i])
+  maxMag &lt;- paste0(&quot;maxmagnitude=&quot;, magSeq[i + 1])
+  eqPath &lt;- paste0(pathBase, retFormat, &quot;&amp;&quot;, startTime, &quot;&amp;&quot;, endTime, &quot;&amp;&quot;, 
+                   minMag, &quot;&amp;&quot;, maxMag)
+  quakeQ &lt;- fromJSON(eqPath)
+  qFrame &lt;- quakeQ$features$properties
+  quakeFrame &lt;- rbind(quakeFrame, qFrame)
+}
+
+baseDate &lt;- as.POSIXct(&quot;1970-01-01T00:00:00.000Z&quot;, tz = &quot;GMT&quot;)
+quakes &lt;- distinct(quakeFrame, ids, .keep_all = TRUE) %&gt;%
+  mutate(date = baseDate + time / 1000, # time is milliseconds since the epoch
+         cleanDate = make_date(year(date), month(date), day(date))) %&gt;%
+  group_by(cleanDate) %&gt;%
+  summarize(qCount = n())
+
+dateSeq &lt;- data.frame(date = seq.Date(from = min(quakes$cleanDate), 
+                    to = max(quakes$cleanDate),
+                    by = &quot;days&quot;))
+
+quakes &lt;- left_join(dateSeq, quakes, by = c(&quot;date&quot; = &quot;cleanDate&quot;))
+quakes$qCount[is.na(quakes$qCount)] &lt;- 0
+quakeTS &lt;- ts(quakes$qCount)</code></pre>
+</div>
+<div id="daily-density" class="section level2">
+<h2>Daily density</h2>
+<pre class="r"><code>ptDens &lt;- ggplot(quakes, aes(qCount)) +
+  geom_histogram(binwidth = 1, fill = &quot;darkblue&quot;, alpha = 0.5) +
+  scale_x_continuous(breaks = c(0, 10, 25, 50)) +
+  coord_cartesian(xlim = c(0, 50)) +
+  labs(x = &quot;Number of Daily Earthquakes&quot;, y = &quot;Historical Frequency&quot;)
+
+print(ptDens)</code></pre>
+<p><img src="index_files/figure-html/unnamed-chunk-3-1.png" width="672" /></p>
+</div>
+<div id="plot-number-of-historical-quakes" class="section level2">
+<h2>Plot number of historical quakes</h2>
+<pre class="r"><code>historicalSum &lt;- select(quakes, date, qCount) %&gt;%
+  ungroup() %&gt;%
+  mutate(monthDate = make_date(year(date), month(date), 1)) %&gt;%
+  group_by(monthDate) %&gt;%
+  summarize(totalQ = sum(qCount))
+
+ptHist &lt;- ggplot(historicalSum, aes(monthDate, totalQ)) +
+  geom_area(stat = &quot;identity&quot;) +
+  labs(x = &quot;Month&quot;, y = &quot;Total Quakes&quot;) +
+  scale_y_continuous(breaks = seq(from = 0, to = 300, by = 50)) +
+  coord_cartesian(ylim = c(0, 300))
+
+print(ptHist)</code></pre>
+<p><img src="index_files/figure-html/unnamed-chunk-4-1.png" width="672" /></p>
+</div>
+<div id="autocorrelation-in-number-of-quakes" class="section level2">
+<h2>Autocorrelation in number of quakes:</h2>
+<pre class="r"><code>Pacf(quakeTS, lag.max = 30)</code></pre>
+<p><img src="index_files/figure-html/unnamed-chunk-5-1.png" width="672" /></p>
+<pre class="r"><code># Build a Time Series Model -----------------------------------------------
+
+# negative binomial time series model
+pModel &lt;- tsglm(quakeTS, model = list(past_obs = 1:10),
+                                      link = &quot;identity&quot;,
+                                      distr = &quot;nbinom&quot;)
+
+# current total
+currentTotal &lt;- filter(quakes, year(date) == 2018, month(date) == 3) %&gt;%
+  summarize(tot = sum(qCount))
+
+# simulate remaining days
+simDays &lt;- as.numeric(as.Date(&quot;2018-03-31&quot;) - max(quakes$date))
+
+simVec &lt;- as.matrix(rep(simDays, 10000))
+modelSim &lt;- apply(simVec, 1, pSim, mdl = pModel) + as.numeric(currentTotal)
+
+# break points for distribution
+brks &lt;- c(0, 101, 140, 174, 213, 1000)
+modelDens &lt;- hist(modelSim, breaks = brks, plot = FALSE)
+modelProbs &lt;- modelDens$count / 10000</code></pre>
+<pre class="r"><code># Random Sample -------------------------------------------------------
+
+endPoints &lt;- sample((simDays + 1):nrow(quakes), 100000, replace = TRUE)
+sampleTotals &lt;- apply(as.matrix(endPoints), 1, sampleTotal, 
+                      fullData = quakes$qCount, dayCount = simDays)
+
+sampleTotals &lt;- sampleTotals + as.numeric(currentTotal)
+
+sampleDens &lt;- hist(sampleTotals, breaks = brks, plot = FALSE)
+sampleProbs &lt;- sampleDens$count / length(sampleTotals)
+
+
+# Comparison --------------------------------------------------------------
+
+compFrame &lt;- data.frame(Threshold = c(&quot;Less than 101&quot;, &quot;101 to 140&quot;, &quot;140 to 174&quot;,
+                                      &quot;174 to 213&quot;, &quot;More than 213&quot;),
+                        Model = percent(modelProbs),
+                        Bootsrap = percent(sampleProbs))</code></pre>
+</div>
+<div id="comparison-of-time-series-model-with-bootstrapped-sample" class="section level2">
+<h2>Comparison of time series model with bootstrapped sample:</h2>
+<pre class="r"><code>print(compFrame)</code></pre>
+<pre><code>##       Threshold Model Bootsrap
+## 1 Less than 101  0.9%     7.3%
+## 2    101 to 140 77.2%    45.9%
+## 3    140 to 174 19.0%    41.8%
+## 4    174 to 213  2.5%     3.9%
+## 5 More than 213  0.4%     1.1%</code></pre>
+</div>
+<div id="compare-modeled-future-path-to-historical-range" class="section level2">
+<h2>Compare modeled future path to historical range</h2>
+<pre class="r"><code># Distribution By Day -----------------------------------------------------
+quakes &lt;- ungroup(quakes) %&gt;%
+  mutate(d = day(date), m = month(date), y = year(date)) %&gt;%
+  group_by(m, y) %&gt;%
+  mutate(runSum = order_by(d, cumsum(qCount)))
+  
+dayStats &lt;- ungroup(quakes) %&gt;%
+  group_by(d) %&gt;%
+  summarize(med = median(runSum),
+            avg = mean(runSum),
+            q25 = quantile(runSum, probs = 0.25),
+            q75 = quantile(runSum, probs = 0.75))
+
+pt &lt;- ggplot(quakes, aes(d, runSum)) +
+  geom_point() +
+  geom_line(data = dayStats, aes(d, med), color = &quot;red&quot;)
+
+
+currMonth &lt;- filter(quakes, m == 3, y == 2018)
+
+fcst &lt;- predict(pModel, n.ahead = simDays)
+fwdPred &lt;- data.frame(qTot = cumsum(as.matrix(fcst$pred))) %&gt;%
+  mutate(d = seq(from = 31 - simDays + 1, to = 31, by = 1),
+         qTot = qTot + as.numeric(currentTotal))</code></pre>
+<pre class="r"><code># forecast plot with historical path
+plot(med ~ d, data = dayStats, type = &quot;l&quot;, 
+     ylim = c(0, max(dayStats$q75, fwdPred$qTot)),
+     xlab = &quot;Day&quot;, ylab = &quot;Cumulative # of Earthquakes &gt; 5.0&quot;)
+lines(q25 ~ d, data = dayStats)
+lines(q75 ~ d, data = dayStats)
+lines(runSum ~ d, data = currMonth, col = &quot;blue&quot;)
+lines(qTot ~ d, data = fwdPred, col = &quot;red&quot;)
+
+leg.txt &lt;- c(&quot;Month to Date&quot;, &quot;Modeled Path&quot;, &quot;25th pctile / median / 75th pctile&quot;)
+legend(&quot;topleft&quot;, leg.txt, lty = 1, col = c(&quot;blue&quot;, &quot;red&quot;, &quot;black&quot;))</code></pre>
+<p><img src="index_files/figure-html/unnamed-chunk-10-1.png" width="672" /></p>
+</div>
+
+
+
+
+</div>
+
+<script>
+
+// add bootstrap table styles to pandoc tables
+function bootstrapStylePandocTables() {
+  $('tr.header').parent('thead').parent('table').addClass('table table-condensed');
+}
+$(document).ready(function () {
+  bootstrapStylePandocTables();
+});
+
+
+</script>
+
+<!-- dynamically load mathjax for compatibility with self-contained -->
+<script>
+  (function () {
+    var script = document.createElement("script");
+    script.type = "text/javascript";
+    script.src  = "https://mathjax.rstudio.com/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML";
+    document.getElementsByTagName("head")[0].appendChild(script);
+  })();
+</script>
+
+</body>
+</html>
